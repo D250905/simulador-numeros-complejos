@@ -1,0 +1,773 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #120b20;
+            color: #f4efff;
+            font-family: Arial, sans-serif;
+        }
+
+        .app {
+            width: 100%;
+            height: 100%;
+            min-height: 480px;
+            display: flex;
+            flex-direction: column;
+            padding: 10px;
+            gap: 9px;
+            background:
+                radial-gradient(circle at 15% 5%, rgba(126, 75, 190, .19), transparent 40%),
+                linear-gradient(145deg, #1b102d, #10091c);
+            border: 1px solid rgba(196, 181, 253, .19);
+            border-radius: 17px;
+        }
+
+        .toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .toolbar-title {
+            color: #d8c7ff;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 1.2px;
+            padding-left: 5px;
+        }
+
+        .tools {
+            display: flex;
+            gap: 6px;
+        }
+
+        button {
+            width: 34px;
+            height: 31px;
+            border-radius: 9px;
+            border: 1px solid rgba(196, 181, 253, .25);
+            background: rgba(112, 69, 169, .25);
+            color: #eee5ff;
+            font-size: 17px;
+            cursor: pointer;
+            transition: .18s ease;
+        }
+
+        button:hover {
+            background: rgba(139, 92, 246, .5);
+            border-color: rgba(221, 204, 255, .65);
+            transform: translateY(-1px);
+        }
+
+        .canvas-wrap {
+            position: relative;
+            flex: 1;
+            min-height: 360px;
+            overflow: hidden;
+            border-radius: 13px;
+            border: 1px solid rgba(196, 181, 253, .17);
+            background:
+                radial-gradient(circle at 50% 50%, rgba(92, 48, 145, .14), transparent 65%),
+                #100a1c;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+            touch-action: none;
+        }
+
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 15px;
+            padding: 1px 5px 2px;
+            color: #b9a9ce;
+            font-size: 11px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .dot.original {
+            background: #bd9cff;
+            box-shadow: 0 0 9px #a78bfa;
+        }
+
+        .dot.transformed {
+            background: #ffb36b;
+            box-shadow: 0 0 9px #fb923c;
+        }
+
+        .dot.cursor {
+            background: #67e8f9;
+            box-shadow: 0 0 9px #22d3ee;
+        }
+
+        .help {
+            color: #88799d;
+            font-size: 10px;
+            padding: 0 5px 2px;
+            line-height: 1.4;
+        }
+
+        @media (max-width: 520px) {
+            .app {
+                padding: 7px;
+                min-height: 440px;
+            }
+
+            .toolbar-title {
+                font-size: 10px;
+            }
+
+            .legend {
+                gap: 9px;
+                font-size: 10px;
+            }
+
+            .help {
+                font-size: 9px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app">
+        <div class="toolbar">
+            <div class="toolbar-title">PLANO COMPLEJO · INTERACTIVO</div>
+
+            <div class="tools">
+                <button id="zoomOut" title="Alejar">−</button>
+                <button id="zoomIn" title="Acercar">+</button>
+                <button id="reset" title="Restablecer vista">⌂</button>
+            </div>
+        </div>
+
+        <div class="canvas-wrap" id="canvasWrap">
+            <canvas id="plane"></canvas>
+        </div>
+
+        <div class="legend">
+            <div class="legend-item">
+                <span class="dot original"></span>
+                <span>Punto original z</span>
+            </div>
+
+            <div class="legend-item">
+                <span class="dot transformed"></span>
+                <span>Punto transformado w</span>
+            </div>
+
+            <div class="legend-item">
+                <span class="dot cursor"></span>
+                <span>Cursor</span>
+            </div>
+        </div>
+
+        <div class="help">
+            Clic: seleccionar punto · Arrastrar punto: moverlo ·
+            Arrastrar fondo: desplazar plano · Rueda: zoom
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("plane");
+        const ctx = canvas.getContext("2d");
+        const wrap = document.getElementById("canvasWrap");
+
+        let width = 0;
+        let height = 0;
+        let dpr = window.devicePixelRatio || 1;
+
+        let centerX = 0;
+        let centerY = 0;
+        let scale = 48;
+
+        let point = {
+            x: 2,
+            y: 1
+        };
+
+        let transformation = "Ninguna";
+
+        let alpha = {
+            x: 1,
+            y: 0
+        };
+
+        let beta = {
+            x: 0,
+            y: 0
+        };
+
+        let cursor = null;
+
+        let pointerMode = "none";
+        let pointerStart = null;
+        let previousPointer = null;
+        let draggedPoint = false;
+
+        let eventCounter = 0;
+
+        function sendPoint() {
+            eventCounter += 1;
+
+            window.parent.postMessage({
+                isStreamlitMessage: true,
+                type: "streamlit:setComponentValue",
+                value: {
+                    x: point.x,
+                    y: point.y,
+                    event_id: eventCounter
+                }
+            }, "*");
+        }
+
+        function setFrameHeight() {
+            const app = document.querySelector(".app");
+            const height = app ? app.getBoundingClientRect().height : 590;
+
+            window.parent.postMessage({
+                isStreamlitMessage: true,
+                type: "streamlit:setFrameHeight",
+                height: Math.ceil(height)
+            }, "*");
+        }
+
+        function transformPoint(x, y) {
+            let resultX = x;
+            let resultY = y;
+
+            if (transformation === "z²") {
+                resultX = x * x - y * y;
+                resultY = 2 * x * y;
+            }
+
+            else if (transformation === "z³") {
+                resultX = x * x * x - 3 * x * y * y;
+                resultY = 3 * x * x * y - y * y * y;
+            }
+
+            else if (transformation === "αz + β") {
+                resultX =
+                    alpha.x * x -
+                    alpha.y * y +
+                    beta.x;
+
+                resultY =
+                    alpha.x * y +
+                    alpha.y * x +
+                    beta.y;
+            }
+
+            return {
+                x: resultX,
+                y: resultY
+            };
+        }
+
+        function screenToMath(px, py) {
+            return {
+                x: (px - centerX) / scale,
+                y: (centerY - py) / scale
+            };
+        }
+
+        function mathToScreen(x, y) {
+            return {
+                x: centerX + x * scale,
+                y: centerY - y * scale
+            };
+        }
+
+        function getMousePosition(event) {
+            const rect = canvas.getBoundingClientRect();
+
+            return {
+                x: event.clientX - rect.left,
+                y: event.clientY - rect.top
+            };
+        }
+
+        function resizeCanvas() {
+            const rect = wrap.getBoundingClientRect();
+
+            width = Math.max(1, rect.width);
+            height = Math.max(1, rect.height);
+
+            dpr = window.devicePixelRatio || 1;
+
+            canvas.width = Math.round(width * dpr);
+            canvas.height = Math.round(height * dpr);
+
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+            centerX = width / 2;
+            centerY = height / 2;
+
+            draw();
+            setFrameHeight();
+        }
+
+        const resizeObserver = new ResizeObserver(() => {
+            resizeCanvas();
+        });
+
+        resizeObserver.observe(wrap);
+
+        window.addEventListener("resize", resizeCanvas);
+
+        function drawGrid() {
+            ctx.save();
+
+            const spacing = scale;
+
+            if (spacing < 5) {
+                ctx.restore();
+                return;
+            }
+
+            const left = Math.floor((0 - centerX) / spacing);
+            const right = Math.ceil((width - centerX) / spacing);
+
+            const bottom = Math.floor((centerY - height) / spacing);
+            const top = Math.ceil(centerY / spacing);
+
+            ctx.lineWidth = 1;
+
+            // Líneas verticales
+            for (let i = left; i <= right; i++) {
+                const x = centerX + i * spacing;
+
+                ctx.beginPath();
+                ctx.strokeStyle =
+                    i === 0
+                    ? "rgba(196,181,253,.65)"
+                    : "rgba(196,181,253,.10)";
+
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+                ctx.stroke();
+            }
+
+            for (let j = bottom; j <= top; j++) {
+                const y = centerY - j * spacing;
+
+                ctx.beginPath();
+                ctx.strokeStyle =
+                    j === 0
+                    ? "rgba(196,181,253,.65)"
+                    : "rgba(196,181,253,.10)";
+
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+                ctx.stroke();
+            }
+            const labelStep = scale < 25 ? 2 : 1;
+
+            ctx.fillStyle = "rgba(215,200,240,.72)";
+            ctx.font = "10px Arial";
+            ctx.textAlign = "center";
+
+            for (let i = left; i <= right; i += labelStep) {
+                if (i === 0) continue;
+
+                const x = centerX + i * spacing;
+
+                ctx.fillText(
+                    String(i),
+                    x,
+                    Math.min(height - 5, centerY + 15)
+                );
+            }
+
+            ctx.textAlign = "right";
+
+            for (let j = bottom; j <= top; j += labelStep) {
+                if (j === 0) continue;
+
+                const y = centerY - j * spacing;
+
+                ctx.fillText(
+                    String(j),
+                    Math.max(22, centerX - 7),
+                    y + 3
+                );
+            }
+
+            ctx.fillStyle = "#c4b5fd";
+            ctx.font = "bold 12px Arial";
+
+            ctx.textAlign = "right";
+            ctx.fillText("Re", width - 12, centerY - 10);
+
+            ctx.textAlign = "left";
+            ctx.fillText("Im", centerX + 10, 15);
+
+            ctx.restore();
+        }
+
+        function drawArrow(from, to, color, lineWidth = 2.5) {
+            const dx = to.x - from.x;
+            const dy = to.y - from.y;
+
+            const angle = Math.atan2(dy, dx);
+            const headLength = 11;
+
+            ctx.save();
+
+            ctx.strokeStyle = color;
+            ctx.fillStyle = color;
+            ctx.lineWidth = lineWidth;
+            ctx.lineCap = "round";
+
+            ctx.beginPath();
+            ctx.moveTo(from.x, from.y);
+            ctx.lineTo(to.x, to.y);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(to.x, to.y);
+
+            ctx.lineTo(
+                to.x - headLength * Math.cos(angle - Math.PI / 6),
+                to.y - headLength * Math.sin(angle - Math.PI / 6)
+            );
+
+            ctx.lineTo(
+                to.x - headLength * Math.cos(angle + Math.PI / 6),
+                to.y - headLength * Math.sin(angle + Math.PI / 6)
+            );
+
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        function drawPoint(position, color, label) {
+            ctx.save();
+
+            ctx.beginPath();
+            ctx.arc(position.x, position.y, 13, 0, Math.PI * 2);
+            ctx.fillStyle = color.replace("1)", ".15)");
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.arc(position.x, position.y, 5.5, 0, Math.PI * 2);
+            ctx.fillStyle = color;
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 15;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = "rgba(255,255,255,.9)";
+            ctx.stroke();
+
+            ctx.font = "bold 12px Arial";
+            ctx.textAlign = "left";
+            ctx.fillStyle = color;
+            ctx.fillText(label, position.x + 12, position.y - 11);
+
+            ctx.restore();
+        }
+        function drawCursor() {
+            if (!cursor) return;
+
+            const p = cursor;
+
+            ctx.save();
+
+            ctx.strokeStyle = "rgba(103,232,249,.45)";
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 5]);
+
+            ctx.beginPath();
+            ctx.moveTo(p.x, 0);
+            ctx.lineTo(p.x, height);
+            ctx.moveTo(0, p.y);
+            ctx.lineTo(width, p.y);
+            ctx.stroke();
+
+            ctx.setLineDash([]);
+
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+            ctx.fillStyle = "#67e8f9";
+            ctx.fill();
+
+            const math = screenToMath(p.x, p.y);
+
+            const label =
+                "(" + math.x.toFixed(2) + ", " +
+                math.y.toFixed(2) + ")";
+
+            ctx.font = "11px Arial";
+            ctx.fillStyle = "#a5f3fc";
+            ctx.textAlign = "left";
+            ctx.fillText(label, p.x + 10, p.y + 18);
+
+            ctx.restore();
+        }
+
+        function draw() {
+            if (!ctx || width <= 0 || height <= 0) return;
+
+            ctx.clearRect(0, 0, width, height);
+
+            drawGrid();
+
+            const original = mathToScreen(point.x, point.y);
+
+            const transformedPoint = transformPoint(
+                point.x,
+                point.y
+            );
+
+            const transformed = mathToScreen(
+                transformedPoint.x,
+                transformedPoint.y
+            );
+            drawArrow(
+                { x: centerX, y: centerY },
+                original,
+                "rgba(189,156,255, .95)",
+                2.6
+            );
+            drawPoint(
+                original,
+                "rgba(189,156,255,1)",
+                "z"
+            );
+            if (transformation !== "Ninguna") {
+                drawArrow(
+                    { x: centerX, y: centerY },
+                    transformed,
+                    "rgba(255,179,107, .95)",
+                    2.6
+                );
+
+                drawPoint(
+                    transformed,
+                    "rgba(255,179,107,1)",
+                    "w"
+                );
+            }
+
+            drawCursor();
+        }
+        function isNearPoint(position) {
+            const original = mathToScreen(point.x, point.y);
+
+            const dx = position.x - original.x;
+            const dy = position.y - original.y;
+
+            return Math.sqrt(dx * dx + dy * dy) < 18;
+        }
+        canvas.addEventListener("pointerdown", (event) => {
+            event.preventDefault();
+
+            canvas.setPointerCapture(event.pointerId);
+
+            const position = getMousePosition(event);
+
+            pointerStart = position;
+            previousPointer = position;
+            draggedPoint = false;
+
+            if (isNearPoint(position)) {
+                pointerMode = "point";
+            } else {
+                pointerMode = "pending";
+            }
+        });
+
+        canvas.addEventListener("pointermove", (event) => {
+            const position = getMousePosition(event);
+
+            cursor = position;
+
+            if (pointerMode === "point") {
+                const math = screenToMath(
+                    position.x,
+                    position.y
+                );
+
+                point.x = math.x;
+                point.y = math.y;
+
+                draggedPoint = true;
+                draw();
+                return;
+            }
+
+            if (pointerMode === "pending") {
+                const dx = position.x - pointerStart.x;
+                const dy = position.y - pointerStart.y;
+
+                if (Math.sqrt(dx * dx + dy * dy) > 4) {
+                    pointerMode = "pan";
+                }
+            }
+
+            if (pointerMode === "pan") {
+                const dx = position.x - previousPointer.x;
+                const dy = position.y - previousPointer.y;
+
+                centerX += dx;
+                centerY += dy;
+
+                previousPointer = position;
+            }
+
+            draw();
+        });
+
+        canvas.addEventListener("pointerup", () => {
+            if (pointerMode === "point") {
+                sendPoint();
+            }
+
+            else if (pointerMode === "pending") {
+                const math = screenToMath(
+                    pointerStart.x,
+                    pointerStart.y
+                );
+
+                point.x = math.x;
+                point.y = math.y;
+
+                sendPoint();
+            }
+
+            pointerMode = "none";
+            pointerStart = null;
+            previousPointer = null;
+
+            draw();
+        });
+
+        canvas.addEventListener("pointercancel", () => {
+            pointerMode = "none";
+            pointerStart = null;
+            previousPointer = null;
+            draw();
+        });
+
+        canvas.addEventListener("pointerleave", () => {
+            if (pointerMode === "none") {
+                cursor = null;
+                draw();
+            }
+        });
+        canvas.addEventListener("wheel", (event) => {
+            event.preventDefault();
+
+            const position = getMousePosition(event);
+            const before = screenToMath(position.x, position.y);
+
+            const factor = event.deltaY < 0 ? 1.12 : 0.89;
+
+            scale = Math.min(180, Math.max(12, scale * factor));
+
+            centerX = position.x - before.x * scale;
+            centerY = position.y + before.y * scale;
+
+            draw();
+        }, { passive: false });
+        document.getElementById("zoomIn").addEventListener("click", () => {
+            scale = Math.min(180, scale * 1.2);
+            draw();
+        });
+
+        document.getElementById("zoomOut").addEventListener("click", () => {
+            scale = Math.max(12, scale / 1.2);
+            draw();
+        });
+
+        document.getElementById("reset").addEventListener("click", () => {
+            scale = 48;
+            centerX = width / 2;
+            centerY = height / 2;
+            draw();
+        });
+        window.addEventListener("message", (event) => {
+            const data = event.data;
+
+            if (!data || data.type !== "streamlit:render") {
+                return;
+            }
+
+            const args = data.args || {};
+
+            if (typeof args.x === "number") {
+                point.x = args.x;
+            }
+
+            if (typeof args.y === "number") {
+                point.y = args.y;
+            }
+
+            if (typeof args.transformacion === "string") {
+                transformation = args.transformacion;
+            }
+
+            if (typeof args.alpha_real === "number") {
+                alpha.x = args.alpha_real;
+            }
+
+            if (typeof args.alpha_imag === "number") {
+                alpha.y = args.alpha_imag;
+            }
+
+            if (typeof args.beta_real === "number") {
+                beta.x = args.beta_real;
+            }
+
+            if (typeof args.beta_imag === "number") {
+                beta.y = args.beta_imag;
+            }
+
+            draw();
+        });
+        window.parent.postMessage({
+            isStreamlitMessage: true,
+            type: "streamlit:componentReady",
+            apiVersion: 1
+        }, "*");
+
+        resizeCanvas();
+    </script>
+</body>
+</html>
